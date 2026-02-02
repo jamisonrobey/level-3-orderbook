@@ -8,7 +8,7 @@ set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
 
 add_executable(tests
-    test_parser.cpp
+    test_itch_parser.cpp
     ${PROJECT_SOURCE_DIR}/src/itch/parser.cpp
 )
 
