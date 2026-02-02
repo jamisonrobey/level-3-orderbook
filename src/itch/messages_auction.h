@@ -38,7 +38,7 @@ struct NOIIMessage
     std::uint64_t paired_shares;
     std::uint64_t imbalance_shares;
     ImbalanceDirection imbalance_direction;
-    Symbol stock;
+    Symbol symbol;
     std::uint32_t far_price;
     std::uint32_t near_price;
     std::uint32_t current_reference_price;
