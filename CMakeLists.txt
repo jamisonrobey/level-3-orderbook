@@ -1,3 +1,9 @@
 cmake_minimum_required(VERSION 3.30)
 project(level-3-orderbook)
 add_executable(level-3-orderbook src/main.cpp src/itch/parser.cpp)
+
+option(BUILD_UNIT_TESTS "Build unit tests" OFF)
+if(BUILD_UNIT_TESTS)
+    enable_testing()
+    add_subdirectory(tests/unit)
+endif()
