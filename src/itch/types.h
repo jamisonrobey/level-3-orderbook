@@ -61,13 +61,14 @@ using MPID = std::array<char, 4>;
 
 }
 
+// debug print
 template <>
 struct std::formatter<itch::MessageType> : std::formatter<std::string_view>
 {
-    auto format(itch::MessageType mt, std::format_context& ctx) const
+    auto format(itch::MessageType msg_type, std::format_context& ctx) const
     {
-        std::string_view name = "Unknown";
-        switch (mt)
+        std::string_view name{"Unknown"};
+        switch (msg_type)
         {
         case itch::MessageType::SystemEvent:
             name = "SystemEvent";

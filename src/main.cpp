@@ -7,13 +7,14 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
+#include "book/market.h"
 #include "fd/fd.h"
 #include "itch/types.h"
 #include "util/binary_io.h"
 #include "itch/parser.h"
 
 std::optional<FD> create_mcast_socket(std::string_view mcast_group, int port);
-void process_packet(std::span<const std::byte> buffer);
+void process_packet(std::span<const std::byte> buffer, book::Market& market);
 
 int main(int argc, char** argv)
 {
@@ -38,6 +39,8 @@ int main(int argc, char** argv)
         return 1;
     }
 
+    book::Market market{};
+
     while (1)
     {
         std::byte msgbuf[1500];
@@ -54,7 +57,7 @@ int main(int argc, char** argv)
             return 1;
         }
 
-        process_packet(std::span{msgbuf, static_cast<size_t>(nbytes)});
+        process_packet(std::span{msgbuf, static_cast<size_t>(nbytes)}, market);
     }
 
     return 0;
@@ -102,7 +105,7 @@ struct MoldUDP64Header
     std::uint16_t msg_count;
 };
 
-void process_packet(std::span<const std::byte> buffer)
+void process_packet(std::span<const std::byte> buffer, book::Market& market)
 {
 
     MoldUDP64Header header{};
@@ -122,79 +125,99 @@ void process_packet(std::span<const std::byte> buffer)
 
         const auto msg_len{util::extract_be<std::uint16_t>(buffer, pos)};
         const auto msg_type{static_cast<itch::MessageType>(buffer[pos++])};
-        std::println("got msg_type: {}", msg_type);
 
-        const auto msg{buffer.subspan(pos, msg_len - 1)};
+        const auto msg_bytes{buffer.subspan(pos, msg_len - 1)};
         switch (msg_type)
         {
         case itch::MessageType::SystemEvent:
-            itch::parse_system_event_message(msg);
+            itch::parse_system_event_message(msg_bytes);
             break;
         case itch::MessageType::StockDirectory:
-            itch::parse_stock_directory_message(msg);
+            itch::parse_stock_directory_message(msg_bytes);
             break;
         case itch::MessageType::StockTradingAction:
-            itch::parse_stock_trading_action_message(msg);
+            itch::parse_stock_trading_action_message(msg_bytes);
             break;
         case itch::MessageType::RegSHORestriction:
-            itch::parse_reg_sho_restriction_message(msg);
+            itch::parse_reg_sho_restriction_message(msg_bytes);
             break;
         case itch::MessageType::MarketParticipantPosition:
-            itch::parse_market_participant_position_message(msg);
+            itch::parse_market_participant_position_message(msg_bytes);
             break;
         case itch::MessageType::MWCBDeclineLevel:
-            itch::parse_mwcb_decline_level_message(msg);
+            itch::parse_mwcb_decline_level_message(msg_bytes);
             break;
         case itch::MessageType::MWCBStatus:
-            itch::parse_mwcb_status_message(msg);
+            itch::parse_mwcb_status_message(msg_bytes);
             break;
         case itch::MessageType::IPOQuotingPeriodUpdate:
-            itch::parse_ipo_quoting_period_update_message(msg);
+            itch::parse_ipo_quoting_period_update_message(msg_bytes);
             break;
         case itch::MessageType::LULDAuctionCollar:
-            itch::parse_luld_auction_collar_message(msg);
+            itch::parse_luld_auction_collar_message(msg_bytes);
             break;
         case itch::MessageType::OperationalHalt:
-            itch::parse_operational_halt_message(msg);
+            itch::parse_operational_halt_message(msg_bytes);
             break;
-        case itch::MessageType::AddOrder:
-            itch::parse_add_order_message(msg);
+        case itch::MessageType::AddOrder: {
+            const auto msg{itch::parse_add_order_message(msg_bytes)};
+            market.get_book(msg.header.stock_locate)
+                .add(msg.order_reference_number, msg.shares, msg.price, msg.side);
             break;
-        case itch::MessageType::AddOrderMPID:
-            itch::parse_add_order_mpid_message(msg);
+        }
+        case itch::MessageType::AddOrderMPID: {
+            const auto msg{itch::parse_add_order_mpid_message(msg_bytes)};
+            market.get_book(msg.header.stock_locate)
+                .add(msg.order_reference_number, msg.shares, msg.price, msg.side);
             break;
-        case itch::MessageType::OrderExecuted:
-            itch::parse_order_executed_message(msg);
+        }
+        case itch::MessageType::OrderExecuted: {
+            const auto msg{itch::parse_order_executed_message(msg_bytes)};
+            market.get_book(msg.header.stock_locate)
+                .reduce(msg.order_reference_number, msg.executed_shares);
             break;
-        case itch::MessageType::OrderExecutedWithPrice:
-            itch::parse_order_executed_with_price_message(msg);
+        }
+        case itch::MessageType::OrderExecutedWithPrice: {
+            const auto msg{itch::parse_order_executed_with_price_message(msg_bytes)};
+            market.get_book(msg.header.stock_locate)
+                .reduce(msg.order_reference_number, msg.executed_shares);
             break;
-        case itch::MessageType::OrderCancel:
-            itch::parse_order_cancel_message(msg);
+        }
+        case itch::MessageType::OrderCancel: {
+            const auto msg{itch::parse_order_cancel_message(msg_bytes)};
+            market.get_book(msg.header.stock_locate)
+                .reduce(msg.order_reference_number, msg.canceled_shares);
             break;
-        case itch::MessageType::OrderDelete:
-            itch::parse_order_delete_message(msg);
+        }
+        case itch::MessageType::OrderDelete: {
+            const auto msg{itch::parse_order_delete_message(msg_bytes)};
+            market.get_book(msg.header.stock_locate)
+                .remove(msg.order_reference_number);
             break;
-        case itch::MessageType::OrderReplace:
-            itch::parse_order_replace_message(msg);
+        }
+        case itch::MessageType::OrderReplace: {
+            const auto msg{itch::parse_order_replace_message(msg_bytes)};
+            market.get_book(msg.header.stock_locate)
+                .replace(msg);
             break;
+        }
         case itch::MessageType::Trade:
-            itch::parse_trade_message(msg);
+            itch::parse_trade_message(msg_bytes);
             break;
         case itch::MessageType::CrossTrade:
-            itch::parse_cross_trade_message(msg);
+            itch::parse_cross_trade_message(msg_bytes);
             break;
         case itch::MessageType::BrokenTrade:
-            itch::parse_broken_trade_message(msg);
+            itch::parse_broken_trade_message(msg_bytes);
             break;
         case itch::MessageType::NOII:
-            itch::parse_noii_message(msg);
+            itch::parse_noii_message(msg_bytes);
             break;
         case itch::MessageType::RPII:
-            itch::parse_rpii_message(msg);
+            itch::parse_rpii_message(msg_bytes);
             break;
         case itch::MessageType::DirectListingPriceDiscovery:
-            itch::parse_direct_listing_price_discovery_message(msg);
+            itch::parse_direct_listing_price_discovery_message(msg_bytes);
             break;
         default:
             std::println(std::cerr, "Unknown message type: {}", static_cast<char>(msg_type));
